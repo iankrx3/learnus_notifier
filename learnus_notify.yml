@@ -1,0 +1,57 @@
+name: LearnUs Announcement Watcher
+
+on:
+  schedule:
+    # GitHub의 cron 스케줄은 UTC 기준이며, 부하가 많을 때는 몇 분씩 밀릴 수 있습니다.
+    - cron: "*/30 * * * *"
+  workflow_dispatch: {}   # Actions 탭에서 수동 실행 버튼으로도 테스트 가능
+
+permissions:
+  contents: write   # data/seen_announcements.json 커밋을 위해 필요
+
+concurrency:
+  group: learnus-watcher
+  cancel-in-progress: false   # 이전 실행이 안 끝났으면 큐잉 (중복 실행 방지)
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+        id: setup-chrome
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run LearnUs watcher
+        env:
+          YONSEI_ID: ${{ secrets.YONSEI_ID }}
+          YONSEI_PW: ${{ secrets.YONSEI_PW }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          FETCH_DETAIL: "true"   # 본문 미리보기까지 필요없으면 "false"로 (속도 향상)
+          MAX_PAGES: "1"
+        run: python notify_new_announcements.py
+
+      - name: Commit updated state file
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/seen_announcements.json
+          git diff --cached --quiet || git commit -m "chore: update seen announcements state [skip ci]"
+          git push
